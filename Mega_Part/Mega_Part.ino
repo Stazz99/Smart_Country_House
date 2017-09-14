@@ -6,7 +6,8 @@
 #include <SPI.h>
 #include "nRF24L01.h"
 #include "RF24.h"
-#include <DS3231.h>
+//#include <DS3231.h>
+#include "RTClib.h"
 #include <DHT.h>
 #include <MenuSystem.h>
 
@@ -17,11 +18,12 @@ MenuSystem ms;
 Menu mm("Main Menu");
 MenuItem mm_mi1("Level1-Item1(I)");
 Menu mu1("Get");
-MenuItem mu1_mi1("Temp");
-MenuItem mu1_mi2("Hum");
-MenuItem mu1_mi3("Time");
+MenuItem mu1_mi1("Time");
+MenuItem mu1_mi2("Temp/Hum");
+MenuItem mu1_mi3("Greenhouse");
 Menu mu2("Set");
 MenuItem mu2_mi1("Time");
+MenuItem mu2_mi2("TargetTemp");
 
 // select the pins used on the LCD panel
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
@@ -44,11 +46,13 @@ int adc_key_in  = 0;
 int adc_key_val[5] ={50,250,450,650,850};
 int key=-1;
 int oldkey=-1;
+int val;
+int CursorPos=1;
 
 
 const uint64_t pipe00 = 0xE8E8F0F0E1LL;
 const uint64_t pipe01 = 0xE8E8F0F0A2LL;
-
+uint64_t pipes[4] = {0xE8E8F0F0E1LL,0xE8E8F0F0A2LL,0xE8E8F0F0B3LL,0xE8E8F0F0C4LL};
 
 struct dataStruct{
   float timestamp;
@@ -97,8 +101,11 @@ byte tempChar[8] = {
 
 //датчик температуры
 #define DHTTYPE DHT11
+#define DHTPIN 10
+DHT dht(DHTPIN, DHTTYPE); // пины для термодатчика 
 float hum, tem;
 float targetTemp = 0; 
+
 
 //переменные для модема
 String currStr = "";
@@ -106,8 +113,9 @@ boolean isStringMessage = false; // True, если текущая строка �
 boolean NetworkOk=false;
 //
 // определяю часы
-DS3231 clock; 
-RTCDateTime dt;
+RTC_DS3231 clock; 
+//RTC_DS1307 clock;
+DateTime dt;
 
 void on_item1_selected(MenuItem* p_menu_item)
 {
@@ -126,6 +134,7 @@ void on_Get_selected(MenuItem* p_menu_item)
   lcd.blink();
   lcd.setCursor(1,1);
   GetNetworkTime();
+  lcd.print(ms.get_current_menu()->get_cur_menu_component_num());
  /* Menu const* cp_menu = ms.get_current_menu();
   lcd.print((cp_menu->get_cur_menu_component_num()));
   
@@ -136,18 +145,124 @@ void on_Get_selected(MenuItem* p_menu_item)
 
 void on_Set_selected(MenuItem* p_menu_item)
 {
-  
+  val=0;
+  CursorPos=1;
   lcd.setCursor(0,0);
-  lcd.print("Set Selected");
-  lcd.setCursor(0,1);
-
+  lcd.print("Set Selected ");
+  lcd.print(ms.get_current_menu()->get_cur_menu_component_num());
+//  lcd.setCursor(0,1);
+//  lcd.setCursor(1,1);
+//  lcd.print("00:00:00");
   lcd.setCursor(1,1);
-  lcd.print("00:00:00");
-  lcd.setCursor(0,1);
-  lcd.blink();
-  delay(5000); // so we can look the result on the LCD
+  lcd.cursor();
+  switch (ms.get_current_menu()->get_cur_menu_component_num()))
+  {
+    case 0:
+    {
+      lcd.setCursor(1,1);
+      lcd.print("00:00:00"); 
+      break;
+    }
+    case 1:
+    {
+      lcd.print(targetTemp);
+      SetValue(11,&targetTemp,-30,30);
+      break;
+    }
+  }
+/*
+  while (CursorPos>0) {
+    switch (read_LCD_buttons())
+      {
+        case btnUP:
+        {
+          val++;
+          val %= 10;
+          lcd.print(val);
+          lcd.setCursor(CursorPos,1);          
+          Serial.println(val,DEC);
+          break;
+        }
+        case btnDOWN:
+        {
+          val--;
+          val %= 10;
+          if (val<0) {val=9;}
+          lcd.print(val);
+          lcd.setCursor(CursorPos,1);
+          Serial.print(val,DEC);
+          break;
+        }
+        case btnRIGHT:
+        {
+          CursorPos++;
+          val=0;
+          if (CursorPos>15) {CursorPos=1;}
+          lcd.setCursor(CursorPos,1);
+          Serial.print(val,DEC);
+          break;
+        }
+        case btnLEFT:
+        {
+          CursorPos--;
+          lcd.setCursor(CursorPos,1);
+          Serial.print(val,DEC);
+          break;
+        }
+      }
+    }
+ */
+  
 }
 
+void SetValue(int StartCursorPos,float* ParamVal,float ValMin, float ValMax)
+{
+  CursorPos = StartCursorPos;
+  val <-ParamVal;
+  
+  while (CursorPos>=StartCursorPos) {
+    switch (read_LCD_buttons())
+      {
+        case btnUP:
+        {
+          val++;
+          val %= ValMax+1;
+          lcd.print(val);
+          lcd.setCursor(CursorPos,1);          
+          Serial.println(val,DEC);
+          break;
+        }
+        case btnDOWN:
+        {
+          val--;
+          val %= ValMax+1;
+          if (val<ValMin) {val=ValMax;}
+          lcd.print(val);
+          lcd.setCursor(CursorPos,1);
+          Serial.print(val,DEC);
+          break;
+        }
+        case btnRIGHT:
+        {
+          CursorPos++;
+          val=0;
+          if (CursorPos>15) {CursorPos=1;}
+          lcd.setCursor(CursorPos,1);
+          Serial.print(val,DEC);
+          break;
+        }
+        case btnLEFT:
+        {
+          CursorPos--;
+          lcd.setCursor(CursorPos,1);
+          Serial.print(val,DEC);
+          break;
+        }
+      }
+    }
+  
+}
+//------------------------------
 void getFromMemory()
 {
   /*
@@ -169,7 +284,7 @@ void setToMemory()
 }
 
 // read the buttons
-int read_LCD_buttons()
+int read_LCD_buttons_old()
 {
  adc_key_in = analogRead(0);      // read the value from the sensor 
  // my buttons when read are centered at these valies: 0, 144, 329, 504, 741
@@ -192,7 +307,27 @@ int read_LCD_buttons()
 */
 
 
- return btnNONE;  // when all others fail, return this...
+ //return btnNONE;  // when all others fail, return this...
+}
+
+int read_LCD_buttons()
+{
+  adc_key_in = analogRead(Key_Pin);      // read the value from the sensor 
+  key = get_key(adc_key_in);    // We get the button pressed
+  if (key != oldkey)   // if keypress is detected
+  {
+    delay(10);  // Expected to avoid bouncing pulsations
+    adc_key_in = analogRead(Key_Pin);    // Read the value of the pulsation
+    key = get_key(adc_key_in);    // We get the button pressed
+    oldkey = key;
+  if (key == -1) return btnNONE; 
+  if (key == 0)  return btnRIGHT;  
+  if (key == 1)  return btnUP; 
+  if (key == 2)  return btnDOWN; 
+  if (key == 3)  return btnLEFT; 
+  if (key == 4)  return btnSELECT; 
+  } 
+  return btnNONE;  // when all others fail, return this...
 }
 
 void sendData(byte direct,byte mess,float val)
@@ -343,7 +478,7 @@ void GetNetworkTime()
 
   String NetDate = currStr.substring(19,27);
   String NetTime = currStr.substring(28,36);
-  clock.adjust(DateTime((String("20" + NetDate.substring(0,2))).toInt(),(NetDate.substring(3,5)).toInt(), (NetDate.substring(6)).toInt(),(NetTime.substring(0,2)).toInt(),(NetTime.substring(3,5)).toInt(),(NetTime.substring(6,8)).toInt())); //1307
+  //clock.adjust(DateTime((String("20" + NetDate.substring(0,2))).toInt(),(NetDate.substring(3,5)).toInt(), (NetDate.substring(6)).toInt(),(NetTime.substring(0,2)).toInt(),(NetTime.substring(3,5)).toInt(),(NetTime.substring(6,8)).toInt())); //1307
 
 #ifdef DEBUG
   Serial.println(NetDate);
@@ -496,7 +631,7 @@ void keyHandler() {
     adc_key_in = analogRead(Key_Pin);    // Read the value of the pulsation
     key = get_key(adc_key_in);    // We get the button pressed
 //    if (key != oldkey) 
-  oldkey = key;
+    oldkey = key;
   //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
@@ -551,7 +686,7 @@ int get_key(unsigned int input) {
 }
 
 //--------------
-void PrintCurrTime(DateTime Dtime)
+/*void PrintCurrTime(DateTime Dtime)
 {
    // Serial.print(Dtime)
     Serial.print(Dtime.day(), DEC); Serial.print("-");
@@ -559,9 +694,9 @@ void PrintCurrTime(DateTime Dtime)
     Serial.print(Dtime.year(), DEC); Serial.print(' ');
     Serial.print(Dtime.hour(), DEC); Serial.print(':');
     Serial.print(Dtime.minute(), DEC); Serial.print(':');
-    Serial.print(Dtime.second(), DEC); Serial.println();
+    Serial.print(Dtime.second(), DEC); Serial.println(' ');
 }
-
+*/
 //------------------------
 void gettemperature() 
 {
@@ -569,7 +704,7 @@ void gettemperature()
     hum = dht.readHumidity();
     tem = dht.readTemperature(false);
 //опрос датчика влажности почвы    
-    for (int i = 0; i < 10; i++)
+ /*   for (int i = 0; i < 10; i++)
     {
       valMoisture += analogRead(SoilSensPin);
       delay(50);
@@ -595,6 +730,7 @@ void gettemperature()
     if (valWaterSens>10) {WaterVolume = 120;}
     
  Serial.print("WaterVolume "); Serial.println(WaterVolume, DEC);
+ */
 }
 
 //---------------------------
@@ -607,7 +743,13 @@ void setup()
 //запуск часов и вывод текущего времни в порт  
   clock.begin();
   dt = clock.now();
-  PrintCurrTime(dt);
+ // PrintCurrTime(dt);
+    
+  Serial.println("Start DHT");
+  dht.begin();
+  
+  Serial.println("temp: "+String(tem)+" hum: "+String(hum));
+  
   
   Serial.begin(57600);
 //запуск экрана
@@ -618,7 +760,7 @@ void setup()
  // его создание
   lcd.createChar(0, tempChar);
 //  lcd.write((byte)0);
-
+/*
 //запуск радио
   Serial.println("radio.begin"); 
   if (radio.begin())  // Инициируем работу nRF24L01+
@@ -633,14 +775,15 @@ void setup()
     delay(5000);
     radio.stopListening();
     radio.setChannel(10); 
-    radio.openWritingPipe(pipe00);
-    radio.openReadingPipe(1, pipe01);            // Открываем 1 трубу с идентификатором 0x1234567890 для приема данных (на ожном канале может быть открыто до 6 разных труб, которые должны отличаться только последним байтом идентификатора)
+    radio.openWritingPipe(pipe01);
+    radio.openReadingPipe(1, pipe00);            // Открываем 0 трубу для приема данных (на ожном канале может быть открыто до 6 разных труб, которые должны отличаться только последним байтом идентификатора)
     radio.startListening();
     radioAvail=true;
     lcd.setCursor(0,1);
     lcd.print(" Radio OK");
     delay(5000);
   }
+  
 //запуск модема
   {
   Serial1.begin(9600);
@@ -674,7 +817,7 @@ void setup()
   lcd.print("Modem OK");
   delay(4000);
   }
-
+*/
 //прорисовка меню
 {
   mm.add_item(&mm_mi1, &on_item1_selected);
@@ -684,6 +827,7 @@ void setup()
   mu1.add_item(&mu1_mi3, &on_Get_selected);
   mm.add_menu(&mu2);
   mu2.add_item(&mu2_mi1, &on_Set_selected);
+  mu2.add_item(&mu2_mi2, &on_Set_selected);
   ms.set_root_menu(&mm);
   
   #ifdef DEBUG
@@ -742,7 +886,7 @@ void loop()
  //}
   }
 */
-  
+ /* 
  //проверка что пришло по NRF
   if (radioAvail) {
     if(radio.available())    {                                // Если в буфере имеются принятые данные
@@ -761,5 +905,5 @@ void loop()
   if (Serial1.available()) {    
       ReadModemMessage();
     }
-    
+    */
 }
